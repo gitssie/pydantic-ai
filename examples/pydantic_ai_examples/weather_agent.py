@@ -7,6 +7,8 @@ the `get_weather` tool to get the weather.
 Run with:
 
     uv run -m pydantic_ai_examples.weather_agent
+    
+Note: Set the `GEMINI_API_KEY` environment variable to use the Gemini model.
 """
 
 from __future__ import annotations as _annotations
@@ -17,10 +19,15 @@ from dataclasses import dataclass
 from typing import Any
 
 import logfire
-from devtools import debug
-from httpx import AsyncClient
+from httpx import AsyncClient, AsyncHTTPTransport
 
-from pydantic_ai import Agent, ModelRetry, RunContext
+from pydantic_ai.agent import Agent
+from pydantic_ai.messages import FunctionToolCallEvent, FunctionToolResultEvent, PartDeltaEvent, PartStartEvent, TextPart, TextPartDelta
+from pydantic_ai.models.gemini import GeminiModel
+from pydantic_ai.models.openai import OpenAIModel
+from pydantic_ai.providers.google_gla import GoogleGLAProvider
+from pydantic_ai.providers.openai import OpenAIProvider
+from pydantic_ai_examples.code_agent import CodeAgent
 
 # 'if-token-present' means nothing will be sent (and the example will work) if you don't have logfire configured
 logfire.configure(send_to_logfire='if-token-present')
@@ -33,24 +40,38 @@ class Deps:
     geo_api_key: str | None
 
 
-weather_agent = Agent(
-    'openai:gpt-4o',
-    # 'Be concise, reply with one sentence.' is enough for some models (like openai) to use
-    # the below tools appropriately, but others like anthropic and gemini require a bit more direction.
-    system_prompt=(
-        'Be concise, reply with one sentence.'
-        'Use the `get_lat_lng` tool to get the latitude and longitude of the locations, '
-        'then use the `get_weather` tool to get the weather.'
-    ),
-    deps_type=Deps,
-    retries=2,
-    instrument=True,
+
+# 使用指定的模型名称
+model_name = 'gemini-2.0-flash'
+print(f'Using model: {model_name}')
+# 设置代理
+proxy = "http://192.168.31.119:3213"
+# 使用正确的 Gemini 模型格式和代理设置
+transport = AsyncHTTPTransport(proxy=proxy)
+custom_http_client = AsyncClient(transport=transport, timeout=30)
+# 设置Gemini API密钥
+gemini_api_key = ""
+gemini_model = GeminiModel( 
+    model_name,
+    provider=GoogleGLAProvider(api_key=gemini_api_key, http_client=custom_http_client),
+)
+
+gemini_model = OpenAIModel(
+    model_name='gemini-2.0-flash',  
+    provider=OpenAIProvider(base_url='https://generativelanguage.googleapis.com/v1beta/openai/',api_key=gemini_api_key, http_client=custom_http_client),  
 )
 
 
-@weather_agent.tool
-async def get_lat_lng(
-    ctx: RunContext[Deps], location_description: str
+weather_agent = CodeAgent[Deps, str](
+    model=gemini_model,
+    deps_type=Deps,
+    output_type=str,
+    retries=2,
+    instrument=False,
+)
+
+@weather_agent.tool_plain
+def get_lat_lng(location_description: str
 ) -> dict[str, float]:
     """Get the latitude and longitude of a location.
 
@@ -58,28 +79,13 @@ async def get_lat_lng(
         ctx: The context.
         location_description: A description of a location.
     """
-    if ctx.deps.geo_api_key is None:
-        # if no API key is provided, return a dummy response (London)
-        return {'lat': 51.1, 'lng': -0.1}
-
-    params = {
-        'q': location_description,
-        'api_key': ctx.deps.geo_api_key,
-    }
-    with logfire.span('calling geocode API', params=params) as span:
-        r = await ctx.deps.client.get('https://geocode.maps.co/search', params=params)
-        r.raise_for_status()
-        data = r.json()
-        span.set_attribute('response', data)
-
-    if data:
-        return {'lat': data[0]['lat'], 'lng': data[0]['lon']}
-    else:
-        raise ModelRetry('Could not find the location')
+    return {'lat': 39.9, 'lng': 116.4074} 
 
 
-@weather_agent.tool
-async def get_weather(ctx: RunContext[Deps], lat: float, lng: float) -> dict[str, Any]:
+
+
+@weather_agent.tool_plain
+def get_weather(lat: float, lng: float) -> dict[str, Any]:
     """Get the weather at a location.
 
     Args:
@@ -87,54 +93,7 @@ async def get_weather(ctx: RunContext[Deps], lat: float, lng: float) -> dict[str
         lat: Latitude of the location.
         lng: Longitude of the location.
     """
-    if ctx.deps.weather_api_key is None:
-        # if no API key is provided, return a dummy response
-        return {'temperature': '21 °C', 'description': 'Sunny'}
-
-    params = {
-        'apikey': ctx.deps.weather_api_key,
-        'location': f'{lat},{lng}',
-        'units': 'metric',
-    }
-    with logfire.span('calling weather API', params=params) as span:
-        r = await ctx.deps.client.get(
-            'https://api.tomorrow.io/v4/weather/realtime', params=params
-        )
-        r.raise_for_status()
-        data = r.json()
-        span.set_attribute('response', data)
-
-    values = data['data']['values']
-    # https://docs.tomorrow.io/reference/data-layers-weather-codes
-    code_lookup = {
-        1000: 'Clear, Sunny',
-        1100: 'Mostly Clear',
-        1101: 'Partly Cloudy',
-        1102: 'Mostly Cloudy',
-        1001: 'Cloudy',
-        2000: 'Fog',
-        2100: 'Light Fog',
-        4000: 'Drizzle',
-        4001: 'Rain',
-        4200: 'Light Rain',
-        4201: 'Heavy Rain',
-        5000: 'Snow',
-        5001: 'Flurries',
-        5100: 'Light Snow',
-        5101: 'Heavy Snow',
-        6000: 'Freezing Drizzle',
-        6001: 'Freezing Rain',
-        6200: 'Light Freezing Rain',
-        6201: 'Heavy Freezing Rain',
-        7000: 'Ice Pellets',
-        7101: 'Heavy Ice Pellets',
-        7102: 'Light Ice Pellets',
-        8000: 'Thunderstorm',
-    }
-    return {
-        'temperature': f'{values["temperatureApparent"]:0.0f}°C',
-        'description': code_lookup.get(values['weatherCode'], 'Unknown'),
-    }
+    return {'temperature': '21 °C', 'description': 'Sunny'}
 
 
 async def main():
@@ -146,11 +105,75 @@ async def main():
         deps = Deps(
             client=client, weather_api_key=weather_api_key, geo_api_key=geo_api_key
         )
-        result = await weather_agent.run(
-            'What is the weather like in London and in Wiltshire?', deps=deps
-        )
-        debug(result)
-        print('Response:', result.output)
+        
+        # print("示例1: 使用 stream_text() 流式输出完整文本")
+        # async with weather_agent.run_stream(
+        #     '查询本月销售订单', deps=deps
+        # ) as result:
+        #     async for message in result.stream_text():
+        #         print(f"收到: {message}")
+        #
+        #     # 完成后获取最终输出
+        #     print("最终输出:", await result.get_output())
+        
+        # print("\n示例2: 使用 stream_text(delta=True) 流式输出增量文本")
+        # async with weather_agent.run_stream(
+        #     '查询北京天气', deps=deps
+        # ) as result:
+        #     async for message in result.stream():
+        #         print(message,end="", flush=True)
+            
+        #     print("最终输出:", await result.get_output())
+
+        print("\n示例2: 使用 stream() 方法流式输出")
+        async with weather_agent.run_stream("现在日期", deps=deps) as result:
+            async def stream_output():
+                async for text in result.stream(debounce_by=0.01):
+                    print(text, end="", flush=True)
+            
+            await stream_output()
+
+        # 添加新消息（例如用户提示和代理响应）到数据库
+        print("\n新消息JSON:", result.new_messages_json())
+
+        print("\n示例3: 监听工具调用和执行过程并支持增量文本输出")
+        # 通过 Agent.iter() 方法直接获取底层的执行流程
+        async with weather_agent.iter(
+            '现在日期', deps=deps
+        ) as run:
+            # 使用 async for 循环自动处理节点迭代
+            #current_text = ""
+            
+            async for node in run:
+                if Agent.is_end_node(node):
+                    if run.result is not None:
+                        print(f"\n✅ 最终结果: {run.result.output}")
+                    else:
+                        print("\n✅ 执行完成，但没有最终结果")
+                    break
+                    
+                elif Agent.is_model_request_node(node):
+                    async with node.stream(run.ctx) as request_stream:
+                        async for event in request_stream:
+                            if isinstance(event, PartDeltaEvent) and isinstance(event.delta, TextPartDelta):
+                                # 增量输出文本
+                                print(event.delta.content_delta, end="", flush=True)
+                            elif isinstance(event, PartStartEvent) and isinstance(event.part, TextPart):
+                                # 输出新文本部分的开始
+                                print(event.part.content, end="", flush=True)
+                                
+                elif Agent.is_call_tools_node(node):
+                    async with node.stream(run.ctx) as handle_stream:
+                        async for event in handle_stream:
+                            if isinstance(event, FunctionToolCallEvent):
+                                print(f"⚙️ 调用工具: {event.part.tool_name}")
+                                print(f"  参数: {event.part.args_as_dict()}")
+                                print(f"  调用ID: {event.call_id}")
+                            elif isinstance(event, FunctionToolResultEvent):
+                                print(f"📊 工具结果: {event.tool_call_id}")
+                                print(f"  返回: {event.result.content}")
+                else:
+                    print(f"\n其他节点: {type(node).__name__}")
 
 
 if __name__ == '__main__':
