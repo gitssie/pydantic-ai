@@ -759,8 +759,13 @@ def evaluate_call(
         if not callable(func):
             raise InterpreterError(f"This is not a correct function: {call.func}).")
         func_name = None
-
+    
     args = []
+    if hasattr(func,'takes_ctx'):
+        if func.takes_ctx:
+            args.append(state['__ctx__'])
+        func = func.function
+    
     for arg in call.args:
         if isinstance(arg, ast.Starred):
             args.extend(evaluate_ast(arg.value, state, static_tools, custom_tools, authorized_imports))
@@ -1546,9 +1551,7 @@ class LocalPythonExecutor(PythonExecutor):
         self.state.update(variables)
 
     def send_tools(self, tools: dict[str, Tool[AgentDepsT]]):
-        self.static_tools = {**BASE_PYTHON_TOOLS.copy()}
-        for name, tool in tools.items():
-            self.static_tools[name] = tool.function
+        self.static_tools = {**tools,**BASE_PYTHON_TOOLS}
 
 
 __all__ = ["evaluate_python_code", "LocalPythonExecutor"]
