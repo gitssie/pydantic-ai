@@ -16,18 +16,25 @@ from __future__ import annotations as _annotations
 import asyncio
 import os
 from dataclasses import dataclass
-from typing import Any
+from typing import Annotated, Any, Union
 
 import logfire
 from httpx import AsyncClient, AsyncHTTPTransport
 
-from pydantic_ai.agent import Agent
-from pydantic_ai.messages import FunctionToolCallEvent, FunctionToolResultEvent, PartDeltaEvent, PartStartEvent, TextPart, TextPartDelta
+import pydantic
+
+from pydantic_ai import Agent
+from pydantic_ai.common_tools.duckduckgo import duckduckgo_search_tool
+from pydantic_ai.mcp import MCPServerStdio, MCPServerHTTP
+from pydantic_ai.messages import ModelRequest, TextPart, ModelMessagesTypeAdapter, ModelResponse, FunctionToolCallEvent, \
+    PartStartEvent, FunctionToolResultEvent, PartDeltaEvent, TextPartDelta
 from pydantic_ai.models.gemini import GeminiModel
 from pydantic_ai.models.openai import OpenAIModel
 from pydantic_ai.providers.google_gla import GoogleGLAProvider
 from pydantic_ai.providers.openai import OpenAIProvider
+from pydantic_ai.tools import RunContext
 from pydantic_ai_examples.code_agent import CodeAgent
+from pydantic_ai_examples.xml_parser_model import XMLParsedModelResponse
 
 # 'if-token-present' means nothing will be sent (and the example will work) if you don't have logfire configured
 logfire.configure(send_to_logfire='if-token-present')
@@ -45,7 +52,7 @@ class Deps:
 model_name = 'gemini-2.0-flash'
 print(f'Using model: {model_name}')
 # 设置代理
-proxy = "http://192.168.31.119:3213"
+proxy = "http://172.16.20.19:3213"
 # 使用正确的 Gemini 模型格式和代理设置
 transport = AsyncHTTPTransport(proxy=proxy)
 custom_http_client = AsyncClient(transport=transport, timeout=30)
@@ -57,17 +64,34 @@ gemini_model = GeminiModel(
 )
 
 gemini_model = OpenAIModel(
-    model_name='gemini-2.0-flash',  
-    provider=OpenAIProvider(base_url='https://generativelanguage.googleapis.com/v1beta/openai/',api_key=gemini_api_key, http_client=custom_http_client),  
+    model_name='gemini-2.0-flash-lite',
+    provider=OpenAIProvider(base_url='https://generativelanguage.googleapis.com/v1beta/openai/',api_key=gemini_api_key, http_client=custom_http_client),
 )
 
+# 创建Playwright MCP服务器
+# playwright_mcp_server = MCPServerStdio(
+#     command="deno",
+#     args=[
+#         "run",
+#         "-A",  # 允许所有权限，生产环境可以限制更多
+#         "--unstable",
+#         "npm:@playwright/mcp@latest",  # 使用npm包
+#         "--headless",  # 无头模式运行浏览器
+#     ],
+#     env=None,  # 默认环境变量
+# )
+playwright_mcp_server = MCPServerHTTP(url='http://localhost:3000/sse')
+python_mcp_server = MCPServerHTTP(url='http://localhost:3001/sse')
 
 weather_agent = CodeAgent[Deps, str](
     model=gemini_model,
+    additional_authorized_imports=['requests'],
     deps_type=Deps,
     output_type=str,
     retries=2,
     instrument=False,
+    mcp_servers=[python_mcp_server],  # 添加MCP服务器
+    tools = [duckduckgo_search_tool()]
 )
 
 @weather_agent.tool_plain
@@ -84,8 +108,8 @@ def get_lat_lng(location_description: str
 
 
 
-@weather_agent.tool_plain
-def get_weather(lat: float, lng: float) -> dict[str, Any]:
+@weather_agent.tool
+def get_weather(ctx: RunContext[Deps], lat: float, lng: float) -> dict[str, Any]:
     """Get the weather at a location.
 
     Args:
@@ -122,58 +146,92 @@ async def main():
         # ) as result:
         #     async for message in result.stream():
         #         print(message,end="", flush=True)
-            
         #     print("最终输出:", await result.get_output())
 
-        print("\n示例2: 使用 stream() 方法流式输出")
-        async with weather_agent.run_stream("现在日期", deps=deps) as result:
-            async def stream_output():
-                async for text in result.stream(debounce_by=0.01):
-                    print(text, end="", flush=True)
-            
-            await stream_output()
+  
+        # node = ModelResponse(parts=[TextPart(content="Hello")])
+        #
+        # xml_node = XMLParsedModelResponse(parts=[TextPart(content="Hello")], raw_parts=[TextPart(content="Hello")])
+        #
+        # raw_parts=[TextPart(content="The Raw Parts Content")]
+        #
+        # # 使用反射机制添加 raw_parts 属性
+        # setattr(node, 'raw_parts', raw_parts)
+        #
+        # print(isinstance(node, ModelResponse))
+        #
+        # setattr(ModelMessagesTypeAdapter, '_type', list[ Annotated[Union[ModelRequest, ModelResponse,XMLParsedModelResponse], pydantic.Discriminator('kind')]])
 
-        # 添加新消息（例如用户提示和代理响应）到数据库
-        print("\n新消息JSON:", result.new_messages_json())
+        # response = ModelMessagesTypeAdapter.core_schema['schema']['items_schema']['choices']['response']
+        # schema = response['schema']
+      
+        # response['config']['extra']= 'allow'
+        # # 将新字段添加到模型的字段列表中
+        # schema['fields'].clear()
+        # response['fields'].clear()
+        #response['fields'].append('raw_parts')
 
+        # 创建一个包含 raw_parts 的 ModelMessage 实例
+        #del ModelMessagesTypeAdapter.core_schema
+        #del ModelMessagesTypeAdapter.validator
+        #print(typeAdapter.dump_json([node]))
+        # row = ModelMessagesTypeAdapter.dump_json( [node,xml_node])
+        # print(row)
+        # node = ModelMessagesTypeAdapter.validate_json(row)
+        # print(node)
+        # print("\n示例2: 使用 stream() 方法流式输出")
+        # async with weather_agent.run_stream("查询北京天气", deps=deps) as result:
+        #     async def stream_output():
+        #         async for text in result.stream(debounce_by=0.01):
+        #             print(text, end="", flush=True)
+        #
+        #     await stream_output()
+        #
+        # # 添加新消息（例如用户提示和代理响应）到数据库
+        # try:
+        #     messages = result.new_messages_json()
+        #     print("\n新消息JSON:", str(messages))
+        # except Exception as e:
+        #     print(f"错误: {e}")
+        
         print("\n示例3: 监听工具调用和执行过程并支持增量文本输出")
-        # 通过 Agent.iter() 方法直接获取底层的执行流程
-        async with weather_agent.iter(
-            '现在日期', deps=deps
-        ) as run:
-            # 使用 async for 循环自动处理节点迭代
-            #current_text = ""
-            
-            async for node in run:
-                if Agent.is_end_node(node):
-                    if run.result is not None:
-                        print(f"\n✅ 最终结果: {run.result.output}")
+
+        async with weather_agent.run_mcp_servers():
+            async with weather_agent.iter(
+                '搜索黄金的价格', deps=deps
+            ) as run:
+                # 使用 async for 循环自动处理节点迭代
+                #current_text = ""
+
+                async for node in run:
+                    if Agent.is_end_node(node):
+                        if run.result is not None:
+                            print(f"\n✅ 最终结果: {run.result.output}")
+                        else:
+                            print("\n✅ 执行完成，但没有最终结果")
+                        break
+
+                    elif Agent.is_model_request_node(node):
+                        async with node.stream(run.ctx) as request_stream:
+                            async for event in request_stream:
+                                if isinstance(event, PartDeltaEvent) and isinstance(event.delta, TextPartDelta):
+                                    # 增量输出文本
+                                    print(event.delta.content_delta, end="", flush=True)
+                                elif isinstance(event, PartStartEvent) and isinstance(event.part, TextPart):
+                                    # 输出新文本部分的开始
+                                    print(event.part.content, end="", flush=True)
+
+                    elif Agent.is_call_tools_node(node):
+                        print("")
+                        async with node.stream(run.ctx) as handle_stream:
+                            async for event in handle_stream:
+                                if isinstance(event, FunctionToolCallEvent):
+                                    print(f"⚙️ 调用工具: {event.part.tool_name} ({event.call_id})")
+                                    print(f"  参数: {event.part.args_as_dict()}")
+                                elif isinstance(event, FunctionToolResultEvent):
+                                    print(f"📊 工具结果: {event.result.content}")
                     else:
-                        print("\n✅ 执行完成，但没有最终结果")
-                    break
-                    
-                elif Agent.is_model_request_node(node):
-                    async with node.stream(run.ctx) as request_stream:
-                        async for event in request_stream:
-                            if isinstance(event, PartDeltaEvent) and isinstance(event.delta, TextPartDelta):
-                                # 增量输出文本
-                                print(event.delta.content_delta, end="", flush=True)
-                            elif isinstance(event, PartStartEvent) and isinstance(event.part, TextPart):
-                                # 输出新文本部分的开始
-                                print(event.part.content, end="", flush=True)
-                                
-                elif Agent.is_call_tools_node(node):
-                    async with node.stream(run.ctx) as handle_stream:
-                        async for event in handle_stream:
-                            if isinstance(event, FunctionToolCallEvent):
-                                print(f"⚙️ 调用工具: {event.part.tool_name}")
-                                print(f"  参数: {event.part.args_as_dict()}")
-                                print(f"  调用ID: {event.call_id}")
-                            elif isinstance(event, FunctionToolResultEvent):
-                                print(f"📊 工具结果: {event.tool_call_id}")
-                                print(f"  返回: {event.result.content}")
-                else:
-                    print(f"\n其他节点: {type(node).__name__}")
+                        print(f"\n其他节点: {type(node).__name__}")
 
 
 if __name__ == '__main__':

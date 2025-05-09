@@ -6,76 +6,793 @@
   <title>Chat App</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
   <style>
-    main {
-      max-width: 700px;
+    body {
+      background-color: #f5f5f5;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      margin: 0;
+      padding: 0;
+      height: 100vh;
+      overflow: hidden;
     }
-    #conversation .user::before {
-      content: 'You asked: ';
+    
+    .chat-container {
+      max-width: 800px;
+      margin: 0 auto;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      background-color: white;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.12);
+    }
+    
+    .chat-header {
+      padding: 15px 20px;
+      border-bottom: 1px solid #eee;
+      flex-shrink: 0;
+    }
+    
+    #messages-container {
+      flex: 1;
+      overflow-y: auto;
+      padding: 20px;
+      scroll-behavior: smooth;
+    }
+    
+    .message {
+      padding: 10px 15px;
+      margin-bottom: 10px;
+      border-radius: 18px;
+      max-width: 75%;
+      position: relative;
+      clear: both;
+    }
+    
+    .user-msg {
+      background-color: #1E88E5;
+      color: white;
+      float: right;
+      border-bottom-right-radius: 5px;
+      text-align: right;
+    }
+    
+    .user-msg::before {
+      content: "YOU";
+      position: absolute;
+      top: -18px;
+      right: 10px;
+      font-size: 12px;
+      color: #1E88E5;
       font-weight: bold;
-      display: block;
     }
-    #conversation .model::before {
-      content: 'AI Response: ';
+    
+    .ai-msg {
+      background-color: #f1f0f0;
+      color: #333;
+      float: left;
+      border-bottom-left-radius: 5px;
+    }
+    
+    .ai-msg::before {
+      content: "AI ASSISTANT";
+      position: absolute;
+      top: -18px;
+      left: 10px;
+      font-size: 12px;
+      color: #4CAF50;
       font-weight: bold;
-      display: block;
     }
-    #spinner {
-      opacity: 0;
-      transition: opacity 500ms ease-in;
+    
+    .message-content {
+      word-wrap: break-word;
+    }
+    
+    .clearfix {
+      clear: both;
+      height: 20px;
+    }
+    
+    .input-area {
+      background-color: white;
+      padding: 15px;
+      border-top: 1px solid #eee;
+      flex-shrink: 0;
+    }
+    
+    .input-wrapper {
+      display: flex;
+      position: relative;
+    }
+    
+    #prompt-input {
+      flex: 1;
+      border-radius: 20px;
+      border: 1px solid #ddd;
+      padding: 10px 45px 10px 15px;
+      resize: none;
+      height: 44px;
+      max-height: 120px;
+      overflow-y: auto;
+      line-height: 1.4;
+      font-size: 16px;
+    }
+    
+    #prompt-input:focus {
+      outline: none;
+      border-color: #1E88E5;
+      box-shadow: 0 0 0 2px rgba(30, 136, 229, 0.2);
+    }
+    
+    .send-btn {
+      position: absolute;
+      right: 6px;
+      bottom: 7px; 
       width: 30px;
       height: 30px;
-      border: 3px solid #222;
-      border-bottom-color: transparent;
+      background-color: #1E88E5;
+      color: white;
+      border: none;
       border-radius: 50%;
-      animation: rotation 1s linear infinite;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      font-size: 16px;
+      z-index: 2;
     }
-    @keyframes rotation {
+    
+    .send-btn:hover {
+      background-color: #1976D2;
+    }
+    
+    .send-btn:active {
+      transform: scale(0.95);
+    }
+    
+    .loader {
+      border: 3px solid #f3f3f3;
+      border-top: 3px solid #1E88E5;
+      border-radius: 50%;
+      width: 24px;
+      height: 24px;
+      animation: spin 1s linear infinite;
+      margin: 10px auto;
+      display: none;
+    }
+    
+    .loader.active {
+      display: block;
+    }
+    
+    @keyframes spin {
       0% { transform: rotate(0deg); }
       100% { transform: rotate(360deg); }
     }
-    #spinner.active {
-      opacity: 1;
+    
+    .error-box {
+      color: #721c24;
+      background-color: #f8d7da;
+      border: 1px solid #f5c6cb;
+      padding: 10px;
+      border-radius: 4px;
+      margin: 10px 0;
+      display: none;
+    }
+    
+    pre {
+      background-color: rgba(0,0,0,0.05);
+      padding: 10px;
+      border-radius: 4px;
+      overflow-x: auto;
+      margin: 10px 0;
+    }
+    
+    code {
+      font-family: SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    }
+    
+    .ai-msg pre code {
+      color: #D63384;
+    }
+    
+    .user-msg pre code {
+      color: #FFC107;
+    }
+    
+    /* 新增：工具调用和结果的样式 */
+    .tool-call {
+      background-color: #e9f5ff;
+      border: 1px solid #c2e0ff;
+      border-radius: 8px;
+      padding: 10px;
+      margin: 10px 0;
+      font-family: SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 13px;
+    }
+    
+    .tool-call-header {
+      display: flex;
+      align-items: center;
+      margin-bottom: 8px;
+      font-weight: bold;
+      color: #0066cc;
+    }
+    
+    .tool-call-icon {
+      margin-right: 6px;
+      font-size: 16px;
+    }
+    
+    .tool-call-name {
+      font-weight: bold;
+    }
+    
+    .tool-call-id {
+      font-size: 11px;
+      color: #666;
+      margin-left: 8px;
+    }
+    
+    .tool-call-params {
+      background-color: rgba(255, 255, 255, 0.7);
+      border-radius: 4px;
+      padding: 8px;
+      margin-bottom: 8px;
+      overflow-x: auto;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+    
+    .tool-result {
+      background-color: #f0fff4;
+      border: 1px solid #c3e6cb;
+      border-radius: 8px;
+      padding: 10px;
+      margin: 10px 0;
+      font-family: SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 13px;
+    }
+    
+    .tool-result-header {
+      display: flex;
+      align-items: center;
+      margin-bottom: 8px;
+      font-weight: bold;
+      color: #28a745;
+    }
+    
+    .tool-result-icon {
+      margin-right: 6px;
+      font-size: 16px;
+    }
+    
+    .tool-result-id {
+      font-size: 11px;
+      color: #666;
+      margin-left: 8px;
+    }
+    
+    .tool-result-content {
+      background-color: rgba(255, 255, 255, 0.7);
+      border-radius: 4px;
+      padding: 8px;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+    
+    /* 媒体查询适配移动设备 */
+    @media (max-width: 768px) {
+      .chat-container {
+        max-width: 100%;
+        margin: 0;
+        height: 100vh;
+        border-radius: 0;
+      }
+      
+      .message {
+        max-width: 85%;
+      }
     }
   </style>
 </head>
 <body>
-  <main class="border rounded mx-auto my-5 p-4">
-    <h1>Chat App</h1>
-    <p>Ask me anything...</p>
-    <div id="conversation" class="px-2"></div>
-    <div class="d-flex justify-content-center mb-3">
-      <div id="spinner"></div>
+  <div class="chat-container">
+    <div class="chat-header">
+      <h1 class="h4 text-primary m-0">Chat App</h1>
+      <p class="text-muted small mb-0">Ask me anything...</p>
     </div>
-    <form method="post">
-      <input id="prompt-input" name="prompt" class="form-control"/>
-      <div class="d-flex justify-content-end">
-        <button class="btn btn-primary mt-2">Send</button>
+    
+    <div id="messages-container">
+      <!-- 消息将在这里动态添加 -->
+    </div>
+    
+    <div id="loader" class="loader"></div>
+    
+    <div id="error-box" class="error-box">
+      An error occurred. Please try again.
+    </div>
+    
+    <div class="input-area">
+      <form id="chat-form" action="/chat/" method="post" enctype="application/x-www-form-urlencoded">
+        <div class="input-wrapper">
+          <textarea id="prompt-input" name="prompt" placeholder="Type your message..." required></textarea>
+          <button type="submit" class="send-btn">↑</button>
       </div>
     </form>
-    <div id="error" class="d-none text-danger">
-      Error occurred, check the browser developer console for more information.
     </div>
-  </main>
+  </div>
+
+  <script>
+    const messagesContainer = document.getElementById('messages-container');
+    const promptInput = document.getElementById('prompt-input');
+    const chatForm = document.getElementById('chat-form');
+    const loader = document.getElementById('loader');
+    const errorBox = document.getElementById('error-box');
+    
+    // 存储已处理的消息ID和消息内容
+    const processedMessages = new Set();
+    const messageContents = new Map(); // UID -> 聚合的内容
+    let lastUserMessageTime = 0; // 用于防止重复显示用户消息
+    
+    // 自动调整文本域高度
+    function adjustTextareaHeight() {
+      promptInput.style.height = 'auto';
+      promptInput.style.height = Math.min(promptInput.scrollHeight, 120) + 'px';
+    }
+    
+    promptInput.addEventListener('input', adjustTextareaHeight);
+    
+    // 确保Enter键可以正常工作
+    promptInput.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        submitForm();
+      }
+    });
+    
+    // 表单提交函数
+    function submitForm() {
+      if (promptInput.value.trim() !== '') {
+        // 直接点击提交按钮，确保表单正常提交
+        document.querySelector('.send-btn').click();
+      }
+    }
+    
+    // 处理表单提交
+    chatForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      
+      const message = promptInput.value.trim();
+      if (!message) return;
+      
+      // 禁用输入
+      promptInput.disabled = true;
+      loader.classList.add('active');
+      
+      try {
+        // 创建用户消息对象并显示
+        const userMessageId = `msg-user-${Date.now()}`;
+        addMessageToUI('user', message, userMessageId);
+        lastUserMessageTime = Date.now(); // 记录最后一次用户消息时间
+        
+        // 创建表单数据
+        const formData = new FormData();
+        formData.append('prompt', message);
+      
+        
+        // 发送请求到服务器
+        const response = await fetch('/chat/', {
+          method: 'POST',
+          body: formData,
+        });
+        
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+      
+        
+        // 处理流式响应
+        const reader = response.body.getReader();
+        let receivedText = '';
+        let isDone = false; // 标记是否收到[DONE]
+        
+        while (true) {
+          const {done, value} = await reader.read();
+          
+          if (done || isDone) {
+            break;
+          }
+          
+          const chunk = new TextDecoder().decode(value);
+          
+          // 检查是否包含[DONE]标记
+          if (chunk.includes('"content":"[DONE]"')) {
+            isDone = true;
+          }
+          
+          // 处理每个完整的JSON行
+          receivedText += chunk;
+          const lines = receivedText.split('\n');
+          
+          // 保留最后一个可能不完整的行
+          const pendingLine = lines.pop();
+          
+          // 处理所有完整的行
+          if (lines.length > 0) {
+            processJsonLines(lines);
+          }
+          
+          // 保存剩余的不完整行
+          receivedText = pendingLine || '';
+        }
+        
+        // 处理最后剩余的文本
+        if (receivedText.trim()) {
+          processJsonLines([receivedText]);
+        }
+        
+      } catch (error) {
+        console.error('Error:', error);
+        errorBox.textContent = error.message || 'An error occurred';
+        errorBox.style.display = 'block';
+        setTimeout(() => {
+          errorBox.style.display = 'none';
+        }, 5000);
+      } finally {
+        // 确保即使没有收到[DONE]标记，也移除加载状态
+        loader.classList.remove('active');
+        promptInput.disabled = false;
+        promptInput.value = '';
+        promptInput.style.height = '44px';
+        promptInput.focus();
+      }
+    });
+    
+    // 处理JSON行数组
+    function processJsonLines(lines) {
+      
+      const messages = [];
+      
+      // 解析每一行JSON
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        
+        try {
+          const message = JSON.parse(line);
+          messages.push(message);
+        } catch (e) {
+          console.warn('Failed to parse message:', line, e);
+        }
+      }
+      
+      // 处理解析出的消息
+      processMessages(messages);
+    }
+    
+    // 处理解析后的消息对象数组
+    function processMessages(messages) {
+      if (!messages || messages.length === 0) return;
+      
+      
+      const messagesByUid = new Map(); // 按UID分组消息
+      
+      // 按UID分组消息
+      for (const message of messages) {
+        const { role, content, uid } = message;
+        
+        // 如果是[DONE]标记，则结束加载状态并停止处理
+        if (content === '[DONE]') {
+          loader.classList.remove('active');
+          continue; // 跳过这条消息，不显示[DONE]标记
+        }
+        
+        // 跳过包含调试信息的消息
+        if (content && (content.includes("节点:") || content.includes("Node:"))) {
+          continue;
+        }
+        
+        // 如果是用户消息，检查是否应该跳过显示
+        if (role === 'user') {
+          // 计算消息时间戳与最后用户消息时间的差值
+          const msgTime = message.timestamp ? new Date(message.timestamp).getTime() : 0;
+          const timeDiff = Math.abs(msgTime - lastUserMessageTime);
+          
+          // 如果差值小于10秒，可能是重复显示，跳过
+          if (timeDiff < 10000) {
+            continue;
+          }
+        }
+        
+        // 按UID分组
+        if (!messagesByUid.has(uid)) {
+          messagesByUid.set(uid, []);
+        }
+        messagesByUid.get(uid).push(message);
+      }
+      
+      // 处理每组消息
+      for (const [uid, groupMessages] of messagesByUid.entries()) {
+        if (groupMessages.length === 0) continue;
+        
+        const firstMessage = groupMessages[0];
+        const role = firstMessage.role;
+        
+        // 用户消息直接渲染一次
+        if (role === 'user') {
+          const messageId = `msg-${uid}`;
+          if (!processedMessages.has(messageId)) {
+            createOrUpdateMessage(role, firstMessage.content, uid);
+          }
+          continue;
+        }
+        
+        // 处理模型消息(可能是增量更新)
+        if (role === 'model') {
+          // 获取现有内容，如果没有则使用空字符串
+          let fullContent = messageContents.get(uid) || '';
+          let hasNewContent = false;
+          
+          // 对于每条消息，追加内容
+          for (const msg of groupMessages) {
+            if (msg.content && !msg.content.includes("节点:") && !msg.content.includes("Node:")) {
+              fullContent += msg.content;
+              hasNewContent = true;
+            }
+          }
+          
+          // 只有当有新内容时才更新
+          if (hasNewContent) {
+            // 保存聚合的内容
+            messageContents.set(uid, fullContent);
+            
+            // 创建或更新消息
+            if (fullContent.trim()) {
+              createOrUpdateMessage(role, fullContent, uid);
+            }
+          }
+        }
+      }
+    }
+    
+    // 处理服务器响应
+    function processServerResponse(text, isFinal = false) {
+      if (!text.trim()) return;
+      
+      // 按行分割文本
+      const lines = text.split('\n');
+      processJsonLines(lines);
+    }
+    
+    // 创建或更新消息
+    function createOrUpdateMessage(role, content, uid) {
+      if (!content || !content.trim()) {
+        return;
+      }
+      
+      const messageId = `msg-${uid}`;
+      
+      // 检查是否已存在此消息元素
+      let messageEl = document.getElementById(messageId);
+      
+      if (!messageEl) {
+        // 创建新消息元素
+        messageEl = document.createElement('div');
+        messageEl.id = messageId;
+        messageEl.className = `message ${role === 'user' ? 'user-msg' : 'ai-msg'}`;
+        
+        // 创建内容容器
+        const contentEl = document.createElement('div');
+        contentEl.className = 'message-content';
+        messageEl.appendChild(contentEl);
+        
+        // 添加到容器
+        messagesContainer.appendChild(messageEl);
+        
+        // 添加清除浮动
+        const clearfix = document.createElement('div');
+        clearfix.className = 'clearfix';
+        messagesContainer.appendChild(clearfix);
+        
+        // 记录已处理消息
+        processedMessages.add(messageId);
+      }
+      
+      // 更新内容容器
+      const contentEl = messageEl.querySelector('.message-content');
+      
+      // 处理markdown
+      const formattedContent = processMarkdown(content);
+      
+      // 应用内容
+      contentEl.innerHTML = formattedContent;
+      
+      // 滚动到底部
+      scrollToBottom();
+    }
+    
+    // 添加消息到UI (仅用于本地显示用户消息)
+    function addMessageToUI(role, content, id) {
+      // 创建消息元素
+      const messageEl = document.createElement('div');
+      messageEl.id = id;
+      messageEl.className = `message ${role === 'user' ? 'user-msg' : 'ai-msg'}`;
+      
+      // 创建内容容器
+      const contentEl = document.createElement('div');
+      contentEl.className = 'message-content';
+      contentEl.innerHTML = processMarkdown(content);
+      
+      // 添加到消息元素
+      messageEl.appendChild(contentEl);
+      
+      // 添加到容器
+      messagesContainer.appendChild(messageEl);
+      
+      // 添加清除浮动
+      const clearfix = document.createElement('div');
+      clearfix.className = 'clearfix';
+      messagesContainer.appendChild(clearfix);
+      
+      // 滚动到底部
+      scrollToBottom();
+    }
+    
+    // 滚动到底部函数
+    function scrollToBottom() {
+      messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    }
+    
+    // 简单的Markdown处理函数
+    function processMarkdown(text) {
+      // 检查是否包含工具调用和工具结果的组合信息
+      if (text.includes("⚙️ 调用工具:") && text.includes("📊 工具结果:")) {
+        // 分离工具调用和工具结果
+        const parts = text.split("📊 工具结果:");
+        
+        // 处理工具调用部分
+        const toolCallPart = formatToolCall(parts[0] + "\n");
+        
+        // 处理工具结果部分
+        const toolResultPart = formatToolResult("📊 工具结果:" + parts[1]);
+        
+        return toolCallPart + toolResultPart;
+      }
+      // 如果只包含工具调用
+      else if (text.includes("⚙️ 调用工具:")) {
+        return formatToolCall(text);
+      } 
+      // 如果只包含工具结果
+      else if (text.includes("📊 工具结果:")) {
+        return formatToolResult(text);
+      }
+      
+      // 处理代码块
+      text = text.replace(/```([\s\S]*?)```/g, '<pre><code>$1</code></pre>');
+      
+      // 处理行内代码
+      text = text.replace(/`([^`]+)`/g, '<code>$1</code>');
+      
+      // 处理加粗
+      text = text.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+      text = text.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+      
+      // 处理列表
+      text = text.replace(/^\s*-\s+(.+)$/gm, '<li>$1</li>').replace(/<li>(.+)<\/li>/g, '<ul><li>$1</li></ul>');
+      
+      // 处理换行
+      text = text.replace(/\n/g, '<br>');
+      
+      return text;
+    }
+    
+    // 工具调用格式化
+    function formatToolCall(text) {
+      // 更健壮的正则表达式，使用非贪婪匹配
+      const nameMatch = text.match(/⚙️ 调用工具: (.+?)(?:\n|$)/);
+      // 使用更宽松的模式提取参数，考虑多行情况
+      const paramsMatch = text.match(/参数: ([\s\S]*?)(?=调用ID:|$)/);
+      const idMatch = text.match(/调用ID: (.+?)(?:\n|$)/);
+      
+      if (!nameMatch) return text; // 如果没有匹配到工具名称，返回原文本
+      
+      const toolName = nameMatch[1];
+      const params = paramsMatch ? paramsMatch[1].trim() : '{}';
+      const callId = idMatch ? idMatch[1] : '';
+      
+      // 无需尝试JSON解析，直接显示格式化后的参数
+      let formattedParams = params;
+      try {
+        // 只有在参数是明确的JSON格式时才尝试解析
+        if (params.trim().startsWith('{') && params.trim().endsWith('}')) {
+          // 替换单引号为双引号，但避免处理已经在双引号中的单引号
+          const jsonStr = params
+            .replace(/'/g, '"')
+            .replace(/\\n/g, '\\\\n')  // 正确处理换行符
+            .replace(/\\"/g, '\\\\"'); // 正确处理转义的双引号
+            
+          try {
+            const paramsObj = JSON.parse(jsonStr);
+            formattedParams = JSON.stringify(paramsObj, null, 2);
+          } catch (e) {
+            // 如果JSON解析失败，使用原始文本但添加格式
+            formattedParams = params
+              .replace(/\\n/g, '<br>')  // 将换行符替换为HTML换行
+              .replace(/\\t/g, '&nbsp;&nbsp;&nbsp;&nbsp;'); // 将制表符替换为空格
+          }
+        }
+      } catch (e) {
+        console.warn('Failed to format tool params:', e);
+        // 失败时使用原始文本但添加格式
+        formattedParams = params
+          .replace(/\\n/g, '<br>')
+          .replace(/\\t/g, '&nbsp;&nbsp;&nbsp;&nbsp;');
+      }
+      
+      // 构建美化的HTML
+      return `
+        <div class="tool-call">
+          <div class="tool-call-header">
+            <span class="tool-call-icon">⚙️</span>
+            <span class="tool-call-name">${toolName}</span>
+            <span class="tool-call-id">(ID: ${callId})</span>
+          </div>
+          <div class="tool-call-params">${formattedParams}</div>
+        </div>
+      `;
+    }
+    
+    // 工具结果格式化
+    function formatToolResult(text) {
+      // 更健壮的正则表达式
+      const idMatch = text.match(/📊 工具结果: (.+?)(?:\n|$)/);
+      const resultMatch = text.match(/返回: ([\s\S]+)$/);
+      
+      if (!idMatch) return text; // 如果没有匹配到必要信息，返回原文本
+      
+      const callId = idMatch[1];
+      const resultContent = resultMatch ? resultMatch[1] : '';
+      
+      // 构建美化的HTML
+      return `
+        <div class="tool-result">
+          <div class="tool-result-header">
+            <span class="tool-result-icon">📊</span>
+            <span>执行结果</span>
+            <span class="tool-result-id">(ID: ${callId})</span>
+          </div>
+          <div class="tool-result-content">${resultContent}</div>
+        </div>
+      `;
+    }
+    
+    // 加载历史消息
+    window.addEventListener('DOMContentLoaded', async () => {
+      try {
+        const response = await fetch('/chat/');
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
+        const text = await response.text();
+        
+        processServerResponse(text, true);
+        
+        // 初始化后设置焦点
+        promptInput.focus();
+      } catch (error) {
+        console.error('Error loading history:', error);
+        errorBox.textContent = 'Failed to load chat history';
+        errorBox.style.display = 'block';
+        setTimeout(() => {
+          errorBox.style.display = 'none';
+        }, 5000);
+      }
+    });
+    
+    // 检查URL查询参数
+    function getQueryParam(name) {
+      const urlParams = new URLSearchParams(window.location.search);
+      return urlParams.get(name);
+    }
+  </script>
 </body>
 </html>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/typescript/5.6.3/typescript.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
-<script type="module">
-  // to let me write TypeScript, without adding the burden of npm we do a dirty, non-production-ready hack
-  // and transpile the TypeScript code in the browser
-  // this is (arguably) A neat demo trick, but not suitable for production!
-  async function loadTs() {
-    const response = await fetch('/chat_app.ts');
-    const tsCode = await response.text();
-    const jsCode = window.ts.transpile(tsCode, { target: "es2015" });
-    let script = document.createElement('script');
-    script.type = 'module';
-    script.text = jsCode;
-    document.body.appendChild(script);
-  }
-
-  loadTs().catch((e) => {
-    console.error(e);
-    document.getElementById('error').classList.remove('d-none');
-    document.getElementById('spinner').classList.remove('active');
-  });
-</script>

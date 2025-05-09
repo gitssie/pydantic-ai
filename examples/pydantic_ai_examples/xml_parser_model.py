@@ -33,6 +33,7 @@ import re
 
 
 class XMLNode:
+    tags:list[str] = []
     type: Optional[str]
     content: str
     delta: str
@@ -40,13 +41,16 @@ class XMLNode:
     tag_name:Optional[str]
     tool_name:Optional[str]
     pos:int
+    next_pos:int
     end:bool
     emit:bool
     part_id:str
 
-    def __init__(self,buffer:str, pos:int,type:Optional[str]=None, tag_name:Optional[str]=None):
+    def __init__(self,tags:list[str],buffer:str, pos:int,type:Optional[str]=None, tag_name:Optional[str]=None):
+        self.tags = tags
         self.buffer = buffer
         self.pos = pos
+        self.next_pos = pos
         self.type = type or "text"
         self.tag_name = tag_name
         self.tool_name = ""
@@ -63,6 +67,7 @@ class XMLNode:
         self.buffer += data
         if self.end:
             node = XMLNode(
+                tags=self.tags,
                 type="text",
                 buffer=self.buffer,
                 pos=self.pos,
@@ -90,9 +95,11 @@ class XMLNode:
         return self.feed("",last=True)
 
     def _process_node(self,last:bool=False) -> XMLNode:
+        if self.pos >= len(self.buffer):
+            return self
         
         if self.type == "text":
-            tag_start = self.buffer.find('<', self.pos)
+            tag_start = self.buffer.find('```', self.pos)
             if tag_start == -1:
                 delta = self.buffer[self.pos:]
                 self.delta += delta
@@ -101,83 +108,72 @@ class XMLNode:
                 self.end = last
                 return self
             
-            if tag_start > self.pos:
-                self.delta = self.buffer[self.pos:tag_start]
-                self.content += self.delta
-                self.pos = tag_start
-                self.end = True
-                return self
-
-            tag_end = self.buffer.find('>', tag_start + 1)
+            tag_start += 3
+            tag_end = self.buffer.find('\n', tag_start)
+            
             if tag_end == -1:
-                if last or not self._is_valid_tag(tag_start+1,len(self.buffer)):
-                    delta = self.buffer[self.pos:]
-                    self.delta += delta
-                    self.content += delta
-                    self.pos = len(self.buffer)
-                    self.end = last
-                    return self
-                elif self.pos + 64 < len(self.buffer):
+                if last or not self._is_valid_tag(tag_start,len(self.buffer)) or tag_start + 16 < len(self.buffer):
                     delta = self.buffer[self.pos:]
                     self.delta += delta
                     self.content += delta
                     self.pos = len(self.buffer)
                     self.end = last
                 return self
-            elif not self._is_valid_tag(tag_start+1,tag_end):
+             
+            tag_name = self.buffer[tag_start:tag_end]
+            if not tag_name in self.tags:
                 delta = self.buffer[self.pos:tag_end + 1]
                 self.delta += delta
                 self.content += delta
                 self.pos = tag_end + 1
                 self.end = last
+                return self._process_node(last)
+            
+            tag_start -= 3
+            if tag_start > self.pos:
+                delta = self.buffer[self.pos:tag_start]
+                self.delta += delta
+                self.content += delta
+                self.pos = tag_start
+                self.end = True
                 return self
-           
-            tag_name = self.buffer[tag_start+1:tag_end]
-
+            
             return XMLNode(
+                tags=self.tags,
                 type="xml",
                 tag_name=tag_name,
                 buffer=self.buffer,
                 pos=tag_end+1,
             )._process_node(last)
         else:
-            end_tag = f"</{self.tag_name}>"
+            end_tag = "```"
             end_pos = self.buffer.find(end_tag, self.pos)
             
             if end_pos == -1:
-                end_pos = self.buffer.find("<", self.pos)
-                if last:
-                    delta = self.buffer[self.pos:]
-                    self.delta += delta
-                    self.content += delta
-                    self.pos = len(self.buffer)
-                    self.end = last
-                    return self
-                elif end_pos == -1:
-                    delta = self.buffer[self.pos:]
-                    self.delta += delta
-                    self.content += delta
-                    self.pos = len(self.buffer)
-                    self.end = last
-                    return self
-                else:
-                    if end_pos == self.pos and end_pos + len(end_tag) > len(self.buffer):
-                        return self
-                    next_pos = self.buffer.find("<", end_pos)
-                    if next_pos == -1:
-                        end_pos = len(self.buffer)
-                    else:
-                        end_pos = next_pos  
-                    delta = self.buffer[self.pos:end_pos]
-                    self.delta += delta
-                    self.content += delta
-                    self.pos = end_pos
-                    return self 
-    
+                delta = self.buffer[self.pos:]
+                self.delta += delta
+                self.content += delta
+                self.pos = len(self.buffer)
+                self.end = last
+                return self
+            
+            next_pos = end_pos + len(end_tag)
+            if self.buffer.find(end_tag, self.next_pos,end_pos) > 0:
+                delta = self.buffer[self.pos:next_pos]
+                self.delta += delta
+                self.content += delta
+                self.pos = next_pos
+                self.next_pos = next_pos
+                self.end = last
+                return self._process_node(last)
+
+            if next_pos + 1 < len(self.buffer) and self.buffer[next_pos + 1] == '\n':
+                next_pos += 1
+
             delta = self.buffer[self.pos:end_pos]
             self.delta += delta
             self.content += delta
-            self.pos = end_pos + len(end_tag)
+            self.pos = next_pos
             self.end = True
             return self
 
@@ -212,22 +208,26 @@ class XMLHandler(ABC):
     @abstractmethod
     def can_handle(self,chunk: XMLNode) -> bool:
         pass
-    
+    @abstractmethod
+    def get_parsed_tags(self) -> list[str]:
+       pass
     @abstractmethod
     def handle(self, parts_manager: Any, chunk: XMLNode, delta:str) -> Optional[ModelResponseStreamEvent]:
         pass
-
+    @abstractmethod
     def part(self,node: XMLNode) -> Optional[ModelResponsePart]:
         pass
 
 class TextHandler(XMLHandler):
-    text_tags = ["answer", "thought"]
+    tags:list[str] = ["thought"]
+    def get_parsed_tags(self) -> list[str]:
+        return self.tags
     
     def can_handle(self, chunk: XMLNode) -> bool:
-        return chunk.type == "text" or chunk.tag_name in self.text_tags or chunk.tag_name is None
+        return chunk.type == "text" or chunk.tag_name in self.tags or chunk.tag_name is None
     
     def handle(self, parts_manager: ModelResponsePartsManager, chunk: XMLNode, delta:str) -> Optional[ModelResponseStreamEvent]:
-        if not delta or self.filter(chunk, delta):
+        if not delta:
             return None
         
         return parts_manager.handle_text_delta(vendor_part_id=chunk.part_id,content=delta)
@@ -237,7 +237,7 @@ class TextHandler(XMLHandler):
             return True
         if delta.startswith('</') and delta.endswith('>'):
             tag_name = delta[2:-1]
-            if tag_name in self.text_tags:
+            if tag_name in self.tags:
                 chunk.content = chunk.content[:-len(delta)]
                 return True
 
@@ -256,7 +256,7 @@ class TextHandler(XMLHandler):
         if not node.content or node.content == '```':
             return True
        
-        for tag in self.text_tags:
+        for tag in self.tags:
             end_tag = f"</{tag}>"
             if node.content.endswith(end_tag):
                 node.content = node.content[:-len(end_tag)]
@@ -275,8 +275,12 @@ class TextHandler(XMLHandler):
 
 class ExecuteCodeToolHandler(XMLHandler):
     code_arg:str = "python_code"
+    tags:list[str] = ["run_python_code"]
     def can_handle(self, chunk: XMLNode) -> bool:
-        return chunk.tag_name == 'run_python_code'
+        return chunk.tag_name in self.tags
+    
+    def get_parsed_tags(self) -> list[str]:
+        return self.tags
     
     def handle(self, parts_manager: ModelResponsePartsManager, chunk: XMLNode, delta:str) -> Optional[ModelResponseStreamEvent]:
         if chunk.emit:
@@ -298,8 +302,13 @@ class ExecuteCodeToolHandler(XMLHandler):
         return ToolCallPart(tool_name=tool_name,args=args, tool_call_id=node.part_id)
 
 class MCPToolHandler(XMLHandler):
+    tags:list[str] = ["tool_code","use_mcp_tool", "use_tool"]
+
     def can_handle(self, chunk: XMLNode) -> bool:
-        return chunk.tag_name == 'use_mcp_tool' or chunk.tag_name == 'use_tool'
+        return chunk.tag_name in self.tags
+    
+    def get_parsed_tags(self) -> list[str]:
+        return self.tags
     
     def handle(self, parts_manager: ModelResponsePartsManager, chunk: XMLNode, delta:str) -> Optional[ModelResponseStreamEvent]:
         tool_name = ""
@@ -336,36 +345,20 @@ class MCPToolHandler(XMLHandler):
         return ToolCallPart(tool_name=tool_name,
                             args=arguments_str,
                             tool_call_id=node.part_id)
-    
-class DefaultToolHandler(XMLHandler):
-    def can_handle(self, chunk: XMLNode) -> bool:
-        return True
-    
-    def handle(self, parts_manager: ModelResponsePartsManager, chunk: XMLNode, delta:str) -> Optional[ModelResponseStreamEvent]:
-        tool_name = ""
-        if not chunk.tool_name:
-            tool_name = chunk.tag_name
-            chunk.tool_name = tool_name
-        
-        return parts_manager.handle_tool_call_delta(
-            vendor_part_id=chunk.part_id,
-            tool_name=tool_name,
-            args=chunk.content if chunk.end else None,
-            tool_call_id=chunk.part_id
-        )
-    
-    def part(self,node: XMLNode) -> Optional[ModelResponsePart]:
-        tool_name = cast(str,node.tag_name)
-        return ToolCallPart(tool_name=tool_name, args=node.content, tool_call_id=node.part_id)
+
 
 @dataclass
 class HandlersFactory(XMLHandler):    
     _tool_handlers: list[XMLHandler] = field(default_factory=lambda: [
-        TextHandler(),
         ExecuteCodeToolHandler(),
         MCPToolHandler(),
-        DefaultToolHandler()
+        TextHandler(),
     ])
+
+    tags:list[str] = field(default_factory=list)
+
+    def __post_init__(self):
+        self.tags = [tag for handler in self._tool_handlers for tag in handler.get_parsed_tags()]
 
     def _get_tool_handler(self, chunk: XMLNode) -> XMLHandler:
         for handler in self._tool_handlers:
@@ -375,7 +368,10 @@ class HandlersFactory(XMLHandler):
     
     def can_handle(self, chunk: XMLNode) -> bool:
         raise NotImplementedError("HandlersFactory is not meant to be used as a handler")
-    
+
+    def get_parsed_tags(self) -> list[str]:
+        return self.tags
+
     def handle(self, parts_manager: ModelResponsePartsManager, chunk: XMLNode, delta:str) -> Optional[ModelResponseStreamEvent]:
         if chunk.emit:
             return None
@@ -394,9 +390,9 @@ class XMLStreamedResponse(StreamedResponse):
     _model_name: str
     _xml_stream: AsyncIterator[XMLNode]
     _usage_getter: Callable[[], Usage]
+    _handlers: HandlersFactory
     _timestamp: datetime = field(default_factory=lambda: datetime.now())
     _text_part:list[ModelResponsePart] = field(default_factory=list)
-    _handlers: HandlersFactory = field(default_factory=HandlersFactory)
     
     async def _get_event_iterator(self) -> AsyncIterator[ModelResponseStreamEvent]:
         buffer:str = ""
@@ -419,6 +415,9 @@ class XMLStreamedResponse(StreamedResponse):
             model_name=self.model_name,
             timestamp=self.timestamp
         )
+        print("============")
+        print(self._text_part[0].content)
+        print("============")
         return response
 
 
@@ -450,7 +449,7 @@ def auto_install(cls: Type[Any]) -> Type[Any]:
 @dataclass(init=False)
 class XMLParserModel(Model):
     wrapped: Model
-    _handlers: HandlersFactory = field(default_factory=HandlersFactory)
+    _handlers: HandlersFactory
     _support_installed: bool = False
     
     @classmethod
@@ -469,7 +468,8 @@ class XMLParserModel(Model):
     def __init__(self, wrapped: Model | KnownModelName | str):
         from pydantic_ai.models import infer_model
         self.wrapped = infer_model(wrapped)
-        
+        self._handlers = HandlersFactory()
+
     async def request(
         self,
         messages: list[ModelMessage],
@@ -494,7 +494,7 @@ class XMLParserModel(Model):
             
         parsed_parts: list[ModelResponsePart] = []
         
-        node = XMLNode(buffer=text_content, pos=0)
+        node = XMLNode(tags=self._handlers.tags,buffer=text_content, pos=0)
         while node:
             node = node.complete()
             if node is None:
@@ -525,10 +525,11 @@ class XMLParserModel(Model):
         async with self.wrapped.request_stream(
             messages, model_settings, model_request_parameters
         ) as response_stream:
-            xml_stream = self._wrap_response_stream(response_stream)
+            xml_stream = self._wrap_response_stream(response_stream,self._handlers.tags)
             yield XMLStreamedResponse(
                 _model_name=self.model_name,
                 _xml_stream=xml_stream,
+                _handlers=self._handlers,
                 _usage_getter=lambda: response_stream.usage(),
             )
     
@@ -545,8 +546,8 @@ class XMLParserModel(Model):
     def system(self) -> str:
         return self.wrapped.system
             
-    async def _wrap_response_stream(self, response_stream: StreamedResponse) -> AsyncGenerator[Any, None]:
-        node = XMLNode(buffer="", pos=0)
+    async def _wrap_response_stream(self, response_stream: StreamedResponse,tags:list[str]) -> AsyncGenerator[Any, None]:
+        node = XMLNode(tags=tags,buffer="", pos=0)
         async for event in response_stream:
             text_chunk = None
             

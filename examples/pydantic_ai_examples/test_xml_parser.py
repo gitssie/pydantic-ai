@@ -1,8 +1,9 @@
 import asyncio
+
+from pydantic_ai_examples.xml_parser_model import XMLNode
 import pytest
 from typing import Dict, List, TypedDict
 
-from xml_parser_model import XMLNode
 
 
 # 定义块类型，用于类型注解
@@ -24,26 +25,15 @@ Block = Dict[str, str]
 @pytest.mark.asyncio
 async def test_xml_node():
     # 测试数据
-    test_data = """<thought>
-我需要查询本月的销售订单。我可以使用 `sale_chart` 工具来完成这个任务。为了使用这个工具，我需要确定本月的开始日期和结束日期。我可以使用 python 的 `datetime` 模块来计算这些日期。
-</thought>
-<py>
-import datetime
-
-today = datetime.date.today()
-first_day_of_month = datetime.date(today.year, today.month, 1)
-last_day_of_month = datetime.date(today.year, today.month, calendar.monthrange(today.year, today.month)[1])
-
-print(first_day_of_month)
-print(last_day_of_month)
-</py>
-<observation>
-2024-07-01
-2024-07-31
-</observation>
-<py>
-print(sale_chart(date_start=datetime.date(2024, 7, 1), date_end=datetime.date(2024, 7, 31)))
-</py>"""
+    test_data = """切换标签页仍然失败。我将尝试另一种方法来获取黄金价格。我将使用AI搜索DeepSeek来查询今天的黄金价格。</thought>
+<use_mcp_tool>
+<tool_name>browser_click</tool_name>
+<arguments>
+{
+  "element": "AI搜 DeepSeek-R1 帮你解答",
+  "ref": "s2e135"
+}</arguments>
+</use_mcp_tool>"""
     # 测试1：分块处理数据
     print("\n1. 测试分块流式解析:")
     chunk_size = 20  # 每个块的大小
