@@ -20,6 +20,7 @@ from functools import partial
 from pathlib import Path
 from typing import Annotated, Any, Callable, Literal, TypeVar, cast
 
+from duckduckgo_search import DDGS
 import fastapi
 from httpx import AsyncClient, AsyncHTTPTransport
 import logfire
@@ -30,6 +31,7 @@ import markdownify
 
 from pydantic_ai import RunContext
 from pydantic_ai.common_tools.duckduckgo import duckduckgo_search_tool
+from pydantic_ai.common_tools.tavily import tavily_search_tool
 from pydantic_ai.models.gemini import GeminiModel
 from pydantic_ai.models.openai import OpenAIModel
 from pydantic_ai.providers.google_gla import GoogleGLAProvider
@@ -65,16 +67,22 @@ proxy = "http://172.16.20.19:3213"
 transport = AsyncHTTPTransport(proxy=proxy)
 custom_http_client = AsyncClient(transport=transport, timeout=30)
 # 设置Gemini API密钥
-gemini_api_key = ""
-gemini_model = GeminiModel( 
+api_key = ""
+model = GeminiModel( 
     model_name,
-    provider=GoogleGLAProvider(api_key=gemini_api_key, http_client=custom_http_client),
+    provider=GoogleGLAProvider(api_key=api_key, http_client=custom_http_client),
 )
 
-gemini_model = OpenAIModel(
+model = OpenAIModel(
     model_name='gemini-2.0-flash',
-    provider=OpenAIProvider(base_url='https://generativelanguage.googleapis.com/v1beta/openai/',api_key=gemini_api_key, http_client=custom_http_client),
+    provider=OpenAIProvider(base_url='https://generativelanguage.googleapis.com/v1beta/openai/',api_key=api_key, http_client=custom_http_client),
 )
+
+model = OpenAIModel(
+    model_name='deepseek-chat',
+    provider=OpenAIProvider(base_url='https://api.deepseek.com/v1',api_key=api_key),
+)
+
 
 # 创建Playwright MCP服务器
 playwright_mcp_server = MCPServerHTTP(url='http://localhost:3000/sse')
@@ -82,10 +90,12 @@ python_mcp_server = MCPServerHTTP(url='http://localhost:3001/sse')
 
 # 创建代理实例，将MCP服务器添加到代理中
 agent = CodeAgent[Any, Any](
-    gemini_model,
+    model,
     instrument=False,
+    output_type=str,
+    retries=2,
     mcp_servers=[python_mcp_server],  # 添加MCP服务器
-    tools=[duckduckgo_search_tool()],
+    tools=[tavily_search_tool(api_key="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")],
 )
 THIS_DIR = Path(__file__).parent
 
@@ -322,7 +332,7 @@ async def post_chat(
         
         # 获取聊天历史记录作为上下文传递给代理
         messages = await database.get_messages()
-        
+        new_message_index = len(messages)
         async with agent.run_mcp_servers():
             # 使用 agent.iter 初始化迭代器，支持节点级别的迭代
             async with agent.iter(prompt, message_history=messages) as run:
@@ -390,9 +400,8 @@ async def post_chat(
                         response_msg = to_chat_message(m, conversation_uid)
                         yield json.dumps(response_msg, ensure_ascii=False).encode('utf-8') + b'\n'
 
-            # 添加新消息（例如用户提示和代理响应）到数据库
             # 将消息列表转换为JSON字节
-            messages_json = ModelMessagesTypeAdapter.dump_json(run.ctx.state.message_history)
+            messages_json = ModelMessagesTypeAdapter.dump_json(run.ctx.state.message_history[new_message_index:])
             await database.add_messages(messages_json)
 
     return StreamingResponse(stream_messages(), media_type='text/plain')
@@ -451,11 +460,12 @@ class Database:
 
     async def get_messages(self) -> list[ModelMessage]:
         c = await self._asyncify(
-            self._execute, 'SELECT message_list FROM messages ORDER BY id DESC LIMIT 10'
+            self._execute, 'SELECT message_list FROM messages ORDER BY id DESC LIMIT 4'
         )
         rows = await self._asyncify(c.fetchall)
+        print(len(rows))
         messages: list[ModelMessage] = []
-        for row in rows:
+        for row in reversed(rows):
             messages.extend(ModelMessagesTypeAdapter.validate_json(row[0]))
         return messages
 

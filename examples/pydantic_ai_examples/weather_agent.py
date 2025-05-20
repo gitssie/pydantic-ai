@@ -18,6 +18,7 @@ import os
 from dataclasses import dataclass
 from typing import Annotated, Any, Union
 
+from duckduckgo_search import DDGS
 import logfire
 from httpx import AsyncClient, AsyncHTTPTransport
 
@@ -57,15 +58,20 @@ proxy = "http://172.16.20.19:3213"
 transport = AsyncHTTPTransport(proxy=proxy)
 custom_http_client = AsyncClient(transport=transport, timeout=30)
 # 设置Gemini API密钥
-gemini_api_key = ""
-gemini_model = GeminiModel( 
+api_key = ""
+model = GeminiModel( 
     model_name,
-    provider=GoogleGLAProvider(api_key=gemini_api_key, http_client=custom_http_client),
+    provider=GoogleGLAProvider(api_key=api_key, http_client=custom_http_client),
 )
 
-gemini_model = OpenAIModel(
-    model_name='gemini-2.0-flash-lite',
-    provider=OpenAIProvider(base_url='https://generativelanguage.googleapis.com/v1beta/openai/',api_key=gemini_api_key, http_client=custom_http_client),
+model = OpenAIModel(
+    model_name='gemini-2.0-flash',
+    provider=OpenAIProvider(base_url='https://generativelanguage.googleapis.com/v1beta/openai/',api_key=api_key, http_client=custom_http_client),
+)
+
+model = OpenAIModel(
+    model_name='deepseek-chat',
+    provider=OpenAIProvider(base_url='https://api.deepseek.com/v1',api_key=api_key),
 )
 
 # 创建Playwright MCP服务器
@@ -84,14 +90,14 @@ playwright_mcp_server = MCPServerHTTP(url='http://localhost:3000/sse')
 python_mcp_server = MCPServerHTTP(url='http://localhost:3001/sse')
 
 weather_agent = CodeAgent[Deps, str](
-    model=gemini_model,
+    model=model,
     additional_authorized_imports=['requests'],
     deps_type=Deps,
     output_type=str,
     retries=2,
     instrument=False,
     mcp_servers=[python_mcp_server],  # 添加MCP服务器
-    tools = [duckduckgo_search_tool()]
+    tools = [duckduckgo_search_tool(DDGS(proxy=proxy), max_results=10)]
 )
 
 @weather_agent.tool_plain
@@ -198,7 +204,7 @@ async def main():
 
         async with weather_agent.run_mcp_servers():
             async with weather_agent.iter(
-                '搜索黄金的价格', deps=deps
+                '1. 我要查询北京天气\n2.告诉我3天之后是什么日期？\n3. 写一个for循环给我测试一下', deps=deps
             ) as run:
                 # 使用 async for 循环自动处理节点迭代
                 #current_text = ""

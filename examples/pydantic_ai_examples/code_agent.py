@@ -132,7 +132,7 @@ class CodeAgent(Agent[AgentDepsT, OutputDataT]): # type: ignore
 
     async def _load_code_agent_prompt(self, run_context: RunContext[AgentDepsT]) -> str:
         current_dir = Path(__file__).parent
-        prompt_file = current_dir / "prompts" / "code_agent.txt"
+        prompt_file = current_dir / "prompts" / "code_agent_xml.md"
         
         try:
             with open(prompt_file, "r", encoding="utf-8") as f:
