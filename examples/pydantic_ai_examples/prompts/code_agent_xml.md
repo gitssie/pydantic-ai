@@ -8,7 +8,7 @@ The complete tool interaction cycle consists of four essential steps:
 3. Analyze results: Carefully examine the outputs to extract relevant information
 4. Iterate: Choose only one tool call per iteration, patiently repeat above steps until task completion
 
-## Tool Usage
+## Tool Guidelines
 
 1. Tool use is formatted using XML-style tags. The tool name is enclosed in opening and closing tags, and each parameter is similarly enclosed within its own set of tags
 2. In <thought> tags, assess what information you already have and what information you need to proceed with the task
