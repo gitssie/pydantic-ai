@@ -438,9 +438,6 @@ class XMLStreamedResponse(StreamedResponse):
             model_name=self.model_name,
             timestamp=self.timestamp
         )
-        print("\n============", flush=True)
-        print(self._text_part[0].content, flush=True)
-        print("============", flush=True)
         return response
 
     def usage(self) -> Usage:
