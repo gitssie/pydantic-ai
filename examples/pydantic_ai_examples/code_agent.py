@@ -95,9 +95,10 @@ class CodeAgent(Agent[AgentDepsT, OutputDataT]): # type: ignore
 
         super().__init__(XMLParserModel(model),model_settings=model_settings, **kwargs)
 
-        self._system_prompt_functions.append(
-            SystemPromptRunner(self._load_code_agent_prompt, dynamic=True)
-        )
+        func = self._load_code_agent_prompt
+        runner = SystemPromptRunner(func, dynamic=True)
+        self._system_prompt_functions.append(runner)
+        self._system_prompt_dynamic_functions[func.__qualname__] = runner
         self._python_tool = PythonTool(function_tools=self._function_tools, additional_authorized_imports=additional_authorized_imports)
         #self._register_tool(self._python_tool)
             

@@ -64,15 +64,15 @@ model = GeminiModel(
     provider=GoogleGLAProvider(api_key=api_key, http_client=custom_http_client),
 )
 
-model = OpenAIModel(
-    model_name='gemini-2.0-flash',
-    provider=OpenAIProvider(base_url='https://generativelanguage.googleapis.com/v1beta/openai/',api_key=api_key, http_client=custom_http_client),
-)
+# model = OpenAIModel(
+#     model_name='gemini-2.0-flash',
+#     provider=OpenAIProvider(base_url='https://generativelanguage.googleapis.com/v1beta/openai/',api_key=api_key, http_client=custom_http_client),
+# )
 
-model = OpenAIModel(
-    model_name='deepseek-chat',
-    provider=OpenAIProvider(base_url='https://api.deepseek.com/v1',api_key=api_key),
-)
+# model = OpenAIModel(
+#     model_name='deepseek-chat',
+#     provider=OpenAIProvider(base_url='https://api.deepseek.com/v1',api_key=api_key),
+# )
 
 # 创建Playwright MCP服务器
 # playwright_mcp_server = MCPServerStdio(
@@ -204,7 +204,7 @@ async def main():
 
         async with weather_agent.run_mcp_servers():
             async with weather_agent.iter(
-                '1. 我要查询北京天气\n2.告诉我3天之后是什么日期？\n3. 写一个for循环给我测试一下', deps=deps
+                '1. 我要查询北京天气，使用markdown格式\n2.告诉我3天之后是什么日期？\n3. 告诉我如何写一个for循环', deps=deps
             ) as run:
                 # 使用 async for 循环自动处理节点迭代
                 #current_text = ""

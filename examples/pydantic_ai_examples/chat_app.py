@@ -42,7 +42,9 @@ from pydantic_ai.messages import (
     ModelMessage,
     ModelMessagesTypeAdapter,
     ModelRequest,
+    ModelRequestPart,
     ModelResponse,
+    SystemPromptPart,
     TextPart,
     UserPromptPart,
     PartStartEvent,
@@ -73,15 +75,10 @@ model = GeminiModel(
     provider=GoogleGLAProvider(api_key=api_key, http_client=custom_http_client),
 )
 
-model = OpenAIModel(
-    model_name='gemini-2.0-flash',
-    provider=OpenAIProvider(base_url='https://generativelanguage.googleapis.com/v1beta/openai/',api_key=api_key, http_client=custom_http_client),
-)
-
-model = OpenAIModel(
-    model_name='deepseek-chat',
-    provider=OpenAIProvider(base_url='https://api.deepseek.com/v1',api_key=api_key),
-)
+# model = OpenAIModel(
+#     model_name='deepseek-chat',
+#     provider=OpenAIProvider(base_url='https://api.deepseek.com/v1',api_key=api_key),
+# )
 
 
 # 创建Playwright MCP服务器
@@ -463,10 +460,23 @@ class Database:
             self._execute, 'SELECT message_list FROM messages ORDER BY id DESC LIMIT 4'
         )
         rows = await self._asyncify(c.fetchall)
-        print(len(rows))
         messages: list[ModelMessage] = []
         for row in reversed(rows):
             messages.extend(ModelMessagesTypeAdapter.validate_json(row[0]))
+        
+        c = await self._asyncify(
+            self._execute, 'SELECT message_list FROM messages ORDER BY id asc LIMIT 1'
+        )
+        rows = await self._asyncify(c.fetchall)
+        for row in reversed(rows):
+            row = ModelMessagesTypeAdapter.validate_json(row[0])
+            row = row[0]
+            if isinstance(row, ModelRequest):
+                parts: list[ModelRequestPart] = []
+                for part in row.parts:
+                    if isinstance(part, SystemPromptPart):
+                        parts.append(part)
+                messages.insert(0, ModelRequest(parts=parts, instructions=row.instructions))
         return messages
 
     def _execute(
