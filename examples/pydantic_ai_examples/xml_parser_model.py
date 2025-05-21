@@ -141,7 +141,7 @@ class XMLNode:
             next_pos = tag_end + 1
             if not tag_name in self.tags:
                 return self._process_continue(last, next_pos)
-
+            
             tag_start -= 1
             if tag_start > self.pos:
                 delta = self.buffer[self.pos:tag_start]
@@ -242,45 +242,36 @@ class TextHandler(XMLHandler):
     def can_handle(self, chunk: XMLNode) -> bool:
         return chunk.type == "text" or chunk.tag_name in self.tags or chunk.tag_name is None
 
-    def handle(self, parts_manager: ModelResponsePartsManager, chunk: XMLNode, delta: str) -> Optional[
-        ModelResponseStreamEvent]:
+    def handle(self, parts_manager: ModelResponsePartsManager, chunk: XMLNode, delta: str) -> Optional[ModelResponseStreamEvent]:
         if not delta:
             return None
-
+        delta = self.filter(chunk,delta)
+        if not delta:
+            return None
         return parts_manager.handle_text_delta(vendor_part_id=chunk.part_id, content=delta)
 
-    def filter(self, chunk: XMLNode, delta: str) -> bool:
-        if chunk.end and chunk.content == '```':
-            return True
-        if delta.startswith('</') and delta.endswith('>'):
-            tag_name = delta[2:-1]
-            if tag_name in self.tags:
-                chunk.content = chunk.content[:-len(delta)]
-                return True
-
-        i = len(chunk.content)
-        if i < 16 and chunk.content.startswith('```'):
-            if chunk.end and re.match(r'^```[a-zA-Z_]+$', chunk.content):
-                return True
-            elif chunk.end:
-                return False
-            else:
-                chunk.delta = delta
-                return True
-        return False
+    def filter(self, chunk: XMLNode, delta: str) -> str:
+        if not chunk.content or chunk.content == '```':
+            return ""
+       
+        pattern = r"</(" + "|".join(tag for tag in self.tags) + r")>"
+        delta = re.sub(pattern, "", delta)
+        block_start = re.search(r'```[a-zA-Z_]+$', delta)
+        if block_start:
+            start_pos = block_start.start()
+            chunk.delta = delta[start_pos:]
+            return delta[:start_pos]
+        return delta
 
     def filter_part(self, node: XMLNode) -> bool:
         if not node.content or node.content == '```':
             return True
 
-        for tag in self.tags:
-            end_tag = f"</{tag}>"
-            if node.content.endswith(end_tag):
-                node.content = node.content[:-len(end_tag)]
-                return False
+        pattern = r"</(" + "|".join(tag for tag in self.tags) + r")>"
+        node.content = re.sub(pattern, "", node.content )
+        node.content = re.sub(r'```[a-zA-Z_]+$', "", node.content )
 
-        i = len(node.content)
-        if i < 16 and re.match(r'^```[a-zA-Z_]+$', node.content):
+        if not node.content or node.content == '```':
             return True
         return False
 
