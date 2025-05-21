@@ -235,6 +235,9 @@ class XMLHandler(ABC):
 
 class TextHandler(XMLHandler):
     tags: list[str] = ["thought"]
+    markdown_start = r'```.*$'
+    markdown = r'(```.+$)|(^```$)'
+    pattern = r"</(" + "|".join(tag for tag in tags) + r")>"
 
     def get_parsed_tags(self) -> list[str]:
         return self.tags
@@ -243,37 +246,25 @@ class TextHandler(XMLHandler):
         return chunk.type == "text" or chunk.tag_name in self.tags or chunk.tag_name is None
 
     def handle(self, parts_manager: ModelResponsePartsManager, chunk: XMLNode, delta: str) -> Optional[ModelResponseStreamEvent]:
-        if not delta:
-            return None
         delta = self.filter(chunk,delta)
         if not delta:
             return None
         return parts_manager.handle_text_delta(vendor_part_id=chunk.part_id, content=delta)
 
     def filter(self, chunk: XMLNode, delta: str) -> str:
-        if not chunk.content or chunk.content == '```':
-            return ""
-       
-        pattern = r"</(" + "|".join(tag for tag in self.tags) + r")>"
-        delta = re.sub(pattern, "", delta)
-        block_start = re.search(r'```[a-zA-Z_]+$', delta)
+        delta = re.sub(self.pattern, "", delta)
+        block_start = re.search(self.markdown_start, delta)
         if block_start:
             start_pos = block_start.start()
-            chunk.delta = delta[start_pos:]
-            return delta[:start_pos]
+            if chunk.content.find('```',0,len(chunk.content) - len(delta)) == -1:
+                chunk.delta = delta[start_pos:]
+                return delta[:start_pos]
         return delta
 
     def filter_part(self, node: XMLNode) -> bool:
-        if not node.content or node.content == '```':
-            return True
-
-        pattern = r"</(" + "|".join(tag for tag in self.tags) + r")>"
-        node.content = re.sub(pattern, "", node.content )
-        node.content = re.sub(r'```[a-zA-Z_]+$', "", node.content )
-
-        if not node.content or node.content == '```':
-            return True
-        return False
+        node.content = re.sub(self.pattern, "", node.content )
+        node.content = re.sub(self.markdown, "", node.content )
+        return bool(node.content)
 
     def part(self, node: XMLNode) -> Optional[ModelResponsePart]:
         if self.filter_part(node):
@@ -291,8 +282,7 @@ class ExecuteCodeToolHandler(XMLHandler):
     def get_parsed_tags(self) -> list[str]:
         return self.tags
 
-    def handle(self, parts_manager: ModelResponsePartsManager, chunk: XMLNode, delta: str) -> Optional[
-        ModelResponseStreamEvent]:
+    def handle(self, parts_manager: ModelResponsePartsManager, chunk: XMLNode, delta: str) -> Optional[ModelResponseStreamEvent]:
         if chunk.emit:
             return None
         tool_name = ""
@@ -385,8 +375,7 @@ class HandlersFactory(XMLHandler):
     def get_parsed_tags(self) -> list[str]:
         return self.tags
 
-    def handle(self, parts_manager: ModelResponsePartsManager, chunk: XMLNode, delta: str) -> Optional[
-        ModelResponseStreamEvent]:
+    def handle(self, parts_manager: ModelResponsePartsManager, chunk: XMLNode, delta: str) -> Optional[ModelResponseStreamEvent]:
         if chunk.emit:
             return None
 
@@ -569,8 +558,7 @@ class XMLParserModel(Model):
 
             if text_chunk:
                 node = node.feed(text_chunk)
-                if node.has_delta() or node.end:
-                    yield node
+                yield node
             else:
                 yield event
 
